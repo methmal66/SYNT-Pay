@@ -1,0 +1,195 @@
+# CLAUDE.md — SYNT PAY Wallet (customer app)
+
+Project-local invariants for **SYNT PAY Wallet (customer app)** (`lk.sliit.syntpay.wallet`), extracted verbatim from
+`~/Syntpay/SYNTPAY_PROJECT.md` §2–§5.
+
+**Purpose.** These four sections are the invariants that must survive context
+compaction. If this file and `SYNTPAY_PROJECT.md` ever disagree, the master
+document wins — re-read it rather than trusting this copy.
+
+**Editorial note (not from the master document).** §2 below opens with "Four
+files" and then lists **five**. Five is correct: §7, §8 and §10 block 2 all say
+"the five shared files". Treat the list, not the count, as normative.
+
+---
+
+## 2. THE SHARED CODE PROBLEM — READ THIS FIRST
+
+Four files must be **byte-identical** in both projects:
+
+```
+crypto/CanonicalCbor.kt
+crypto/ChainRecord.kt
+keys/KeyBatch.kt
+verify/TerminalVerifier.kt
+protocol/Protocol.kt
+```
+
+They live in both projects under package `lk.sliit.syntpay.shared`.
+
+**Why this matters.** Both apps encode a spend entry to canonical CBOR and
+hash it to produce a receipt identifier. If the two encoders differ by one
+byte, one payment produces two different identifiers and the merchant is
+credited twice. This is the single most dangerous failure mode in the
+project and it is silent.
+
+### The sync rule
+
+The **wallet copy is canonical**. After any change to a shared file:
+
+```bash
+cp ~/AndroidStudioProjects/SyntPayWallet/app/src/main/java/lk/sliit/syntpay/shared/<file> \
+   ~/AndroidStudioProjects/terminal/app/src/main/java/lk/sliit/syntpay/shared/<file>
+```
+
+Then prove they match:
+
+```bash
+diff -r ~/AndroidStudioProjects/SyntPayWallet/app/src/main/java/lk/sliit/syntpay/shared \
+        ~/AndroidStudioProjects/terminal/app/src/main/java/lk/sliit/syntpay/shared \
+  && echo "SHARED OK"
+```
+
+Run that diff at the end of every build block and show the output. If it
+prints anything other than `SHARED OK`, stop and fix it.
+
+---
+
+## 3. THE MECHANISM — INVARIANTS
+
+The problem: when the terminal and the customer's phone are both offline,
+no third party is reachable. The terminal's only source of information is
+the customer's own phone, which the customer controls and can root.
+
+- A ledger-signed **allowance voucher** locks an amount `L` in escrow.
+  This bounds what a merchant can lose.
+- A **batch of 20 single-use keys** is generated in Android Keystore with
+  `setMaxUsageCount(1)`. A key physically cannot sign twice.
+- Each offline payment appends an entry to a hash-linked **spend chain**,
+  signed by the next unused key in index order.
+- **The balance is derived**, every time, as `allowance − Σ(chain entry
+  amounts)`. There is no balance field stored anywhere. This is the
+  security property: there is no number on the phone to edit.
+- Deleting entries does not move the hardware key index backwards, so
+  concealment leaves a gap the terminal detects.
+
+One line: *you can edit your spending history, but you cannot un-burn a key.*
+
+### Terminal verification — nine steps, fails closed
+
+1. Verify the ledger signature on the voucher
+2. Check the voucher has not expired against the last known block height
+3. Check the wallet is not on the local revocation list
+4. Verify chain integrity: every `prevHash` links correctly
+5. Verify each entry signature against the batch public key at its index
+6. Verify attestation for the current key via a Merkle proof against `keyRoot`
+7. **GAP CHECK** — the index of the next unused key must equal the number
+   of entries presented
+8. Check `amount ≤ allowance − Σ(entries)`
+9. Compute the acceptance score; accept or refuse
+
+Steps 1–3 run before 4–6 by design, so an invalid wallet is refused before
+any expensive cryptography.
+
+### Acceptance policy (step 9)
+
+```
+ratio      = amount / L
+headroom   = (remaining − amount) / L
+voucherAge = (lastKnownBlock − issuedAtBlock) / (expiryBlock − issuedAtBlock)
+
+score = 0.4·ratio + 0.2·voucherAge
+      + 0.2·min(1, syncAgeSeconds/86400)
+      + 0.2·min(1, revListAgeSeconds/86400)
+      − 0.1·headroom
+
+accept if score < 0.75
+```
+
+Hard rules override the score unconditionally: any chain gap, expired
+voucher, revoked wallet, failed attestation or insufficient allowance
+refuses regardless of score.
+
+### Recovery path
+
+A write-ahead intent record is written **before** signing and cleared
+**after** the entry is persisted. If the process dies in between, an
+honest wallet develops a real gap. On launch, a surviving intent means the
+wallet disables offline spending and requires one online resynchronisation.
+
+---
+
+## 4. CANONICAL CBOR — EXACT SPECIFICATION
+
+Deterministic CBOR per RFC 8949 §4.2.1. Hand-written. **Never add a CBOR
+library.**
+
+Rules: definite-length encoding only; smallest possible integer encoding;
+map keys in the fixed order below; no indefinite-length strings, no tags,
+no floats.
+
+### SpendEntry — field order is fixed, do not reorder
+
+```
+index         uint    position in the chain
+txnID         bytes   16 bytes, generated by the terminal
+amount        uint    minor currency units
+batchID       text
+prevHash      bytes   32 bytes, SHA-256 of canonical(E(n-1)), zeros for n=0
+walletID      text
+merchantID    text
+terminalID    text
+voucherRef    bytes   32 bytes, SHA-256 of canonical(voucher)
+terminalTime  uint    advisory only, never trusted
+```
+
+### AllowanceVoucher — field order is fixed
+
+```
+batchID        text
+keyRoot        bytes   32 bytes, Merkle root over batch public keys
+walletID       text
+allowance      uint    L, in minor units
+expiryBlock    uint
+issuedAtBlock  uint
+policyVersion  uint
+```
+
+Both orders are the RFC 8949 canonical ordering (sort by encoded key
+bytes). They were computed, not guessed. Do not re-derive them.
+
+### Receipt identifier
+
+`rid = SHA-256(canonicalEncoding(entry))`
+
+---
+
+## 5. KNOWN-ANSWER TEST VECTORS
+
+These come from an independent Python reference implementation. Both apps
+must reproduce them exactly. **This is the first thing to verify.**
+
+Input entry:
+```
+index        = 0
+txnID        = 000102030405060708090a0b0c0d0e0f
+amount       = 2500
+batchID      = "batch-0001"
+prevHash     = 32 zero bytes
+walletID     = "wallet-0001"
+merchantID   = "Org1MSP"
+terminalID   = "term-0001"
+voucherRef   = SHA-256("voucher")
+terminalTime = 1750000000
+```
+
+Expected output:
+```
+encoded length : 227 bytes
+encoding prefix: aa65696e646578006574786e494450000102030405060708090a0b0c0d0e0f66616d6f756e741909
+receipt id     : 1c17f4837955a32baba235953cc36723de98496c204241d5ce0bcf6c7a34d016
+```
+
+Write this as an instrumented test in both projects
+(`androidTest`, because it must run on-device). A failure here means
+everything downstream is worthless.

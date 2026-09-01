@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">SYNT PAY</string>
+    <string name="hce_service_description">SYNT PAY offline wallet</string>
+    <string name="hce_aid_group_description">SYNT PAY offline payment</string>
+</resources>
