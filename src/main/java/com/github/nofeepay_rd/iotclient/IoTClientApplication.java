@@ -25,8 +25,10 @@ public class IoTClientApplication implements CommandLineRunner {
 
         System.out.println("Testing Fabric connection...");
         String result = smartContractService.GetAllCustomerTransfers();
-        System.out.println("Result from blockchain:");
-        System.out.println(result);
+        /*byte[] Output = smartContractService.transferFunds("customer001",100, "merchant001");
+        System.out.println("Transfer result: " + Output);*/
+        System.out.println("Result from blockchain:" + result);
+
     }
 }
 

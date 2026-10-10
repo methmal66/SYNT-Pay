@@ -35,5 +35,42 @@ public class SmartContractService {
                 result,
                 StandardCharsets.UTF_8
         );
+    }/*
+
+    public String transferFunds(
+            String customerAddress,
+            double amount,
+            String merchantAddress) throws Exception {
+
+        byte[] result = contract.submitTransaction(
+                "TransferFunds",
+                customerAddress,
+                String.valueOf(amount),
+                merchantAddress
+        );
+
+        return new String(
+                result,
+                StandardCharsets.UTF_8
+        );
+    }*/
+    public byte[] transferFunds(
+            String customerAddress,
+            long amount,
+            String merchantAddress) {
+
+        try {
+            return contract.submitTransaction(
+                    "TransferFunds",
+                    customerAddress,
+                    String.valueOf(amount),
+                    merchantAddress
+            );
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new RuntimeException(
+                    "Fabric TransferFunds transaction failed", e
+            );
+        }
     }
 }
