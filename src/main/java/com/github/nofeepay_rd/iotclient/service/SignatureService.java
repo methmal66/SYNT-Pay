@@ -3,60 +3,64 @@ package com.github.nofeepay_rd.iotclient.service;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
-import java.security.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.KeyFactory;
+import java.security.PrivateKey;
+import java.security.Signature;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
 
-    @Service
-    public class SignatureService {
+@Service
+public class SignatureService {
 
-        public KeyPair generateKeyPair() throws Exception {
-            KeyPairGenerator generator =
-                    KeyPairGenerator.getInstance("RSA");
+    private final Path privateKeyPath = Path.of( "C:\\Users\\yehan\\IdeaProjects\\merchant-private.txt"
+    );
 
-            generator.initialize(2048);
+    private PrivateKey loadMerchantPrivateKey() throws Exception {
 
-            return generator.generateKeyPair();
+        if (!Files.exists(privateKeyPath)) {
+            throw new IllegalStateException(
+                    "Private key file not found: " + privateKeyPath
+            );
         }
 
-        public String signTransaction(
-                String transactionData,
-                PrivateKey privateKey) throws Exception {
+        String pem = Files.readString(privateKeyPath);
 
-            Signature signer =
-                    Signature.getInstance("SHA256withRSA");
+        String keyContent = pem
+                .replace("-----BEGIN PRIVATE KEY-----", "")
+                .replace("-----END PRIVATE KEY-----", "")
+                .replaceAll("\\s", "");
 
-            signer.initSign(privateKey);
+        byte[] keyBytes = Base64.getDecoder()
+                .decode(keyContent);
 
-            signer.update(
-                    transactionData.getBytes(
-                            StandardCharsets.UTF_8));
+        PKCS8EncodedKeySpec keySpec =
+                new PKCS8EncodedKeySpec(keyBytes);
 
-            byte[] signature = signer.sign();
+        KeyFactory keyFactory =
+                KeyFactory.getInstance("RSA");
 
-            return Base64.getEncoder()
-                    .encodeToString(signature);
-        }
-
-        public boolean verifyTransaction(
-                String transactionData,
-                String encodedSignature,
-                PublicKey publicKey) throws Exception {
-
-            Signature verifier =
-                    Signature.getInstance("SHA256withRSA");
-
-            verifier.initVerify(publicKey);
-
-            verifier.update(
-                    transactionData.getBytes(
-                            StandardCharsets.UTF_8));
-
-            byte[] signature =
-                    Base64.getDecoder()
-                            .decode(encodedSignature);
-
-            return verifier.verify(signature);
-        }
+        return keyFactory.generatePrivate(keySpec);
     }
 
+    public String signTransaction(
+            String transactionData) throws Exception {
 
+        PrivateKey privateKey = loadMerchantPrivateKey();
+
+        Signature signer =
+                Signature.getInstance("SHA256withRSA");
+
+        signer.initSign(privateKey);
+
+        signer.update(
+                transactionData.getBytes(StandardCharsets.UTF_8)
+        );
+
+        byte[] signedBytes = signer.sign();
+
+        return Base64.getEncoder()
+                .encodeToString(signedBytes);
+    }
+}
