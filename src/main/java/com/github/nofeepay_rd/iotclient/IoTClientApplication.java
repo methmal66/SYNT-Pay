@@ -23,11 +23,10 @@ public class IoTClientApplication implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
 
-        System.out.println("Testing Fabric connection...");
-        String result = smartContractService.GetAllCustomerTransfers();
-        /*byte[] Output = smartContractService.transferFunds("customer001",100, "merchant001");
-        System.out.println("Transfer result: " + Output);*/
-        System.out.println("Result from blockchain:" + result);
+        //System.out.println("Testing Fabric connection...");
+        //String result = smartContractService.GetAllCustomerTransfers();
+        smartContractService.TransferFunds("C001",100, "M001");
+        //System.out.println("Result from blockchain:" + result);
 
     }
 }
