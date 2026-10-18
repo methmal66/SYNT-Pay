@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import lk.sliit.syntpay.shared.ChainRecord
 import lk.sliit.syntpay.shared.KeyBatch
+import lk.sliit.syntpay.shared.toHex
 import lk.sliit.syntpay.wallet.data.WalletRepository
 import lk.sliit.syntpay.wallet.data.WalletStore
 import lk.sliit.syntpay.wallet.lab.WalletLab
@@ -103,6 +104,58 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             val recovered = withContext(Dispatchers.IO) { repository.recoverOnLaunch() }
             stored = recovered
             _state.value = snapshot(recovered).copy(loading = false)
+        }
+
+        // Observe NFC Host Card Emulation events from WalletApduService
+        viewModelScope.launch {
+            while (true) {
+                val event = lk.sliit.syntpay.wallet.nfc.WalletApduService.lastEvent.getAndSet(null)
+                if (event != null) {
+                    when (event) {
+                        is lk.sliit.syntpay.wallet.nfc.WalletApduService.Companion.Event.Session -> {
+                            onSessionReceived(event.amountMinor, event.merchantId, event.terminalId)
+                        }
+                        is lk.sliit.syntpay.wallet.nfc.WalletApduService.Companion.Event.Chunk -> {
+                            _state.value = _state.value.copy(
+                                pay = PayState.Transferring(event.index, event.total)
+                            )
+                        }
+                        is lk.sliit.syntpay.wallet.nfc.WalletApduService.Companion.Event.Result -> {
+                            stored = repository.load()
+                            val lastRecord = stored.records.lastOrNull()
+                            if (event.accepted) {
+                                val receiptId = lastRecord?.entry?.receiptId()?.toHex().orEmpty()
+                                val chainIdx = lastRecord?.entry?.index ?: 0
+                                _state.value = snapshot(stored).copy(
+                                    pay = PayState.Accepted(
+                                        amountMinor = lastRecord?.entry?.amountMinor ?: 0L,
+                                        merchantId = lastRecord?.entry?.merchantId ?: "Terminal",
+                                        chainIndex = chainIdx,
+                                        receiptIdHex = receiptId,
+                                        remainingAfter = repository.remaining(stored),
+                                    )
+                                )
+                            } else {
+                                _state.value = snapshot(stored).copy(
+                                    pay = PayState.Refused(
+                                        amountMinor = lastRecord?.entry?.amountMinor ?: 0L,
+                                        code = event.code,
+                                        reason = event.detail,
+                                    )
+                                )
+                            }
+                        }
+                        is lk.sliit.syntpay.wallet.nfc.WalletApduService.Companion.Event.SelfRefused -> {
+                            _state.value = _state.value.copy(
+                                pay = PayState.LocallyRefused(
+                                    lk.sliit.syntpay.shared.Protocol.SelfRefusal.describe(event.reason)
+                                )
+                            )
+                        }
+                    }
+                }
+                kotlinx.coroutines.delay(100)
+            }
         }
     }
 
@@ -252,6 +305,82 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
     fun resetPay() {
         _state.value = _state.value.copy(pay = PayState.Idle)
+    }
+
+    /**
+     * Simulate an honest payment and verify it using TerminalVerifier.
+     * Enables end-to-end payment demonstration without requiring an external NFC POS device.
+     */
+    fun simulatePayment(amountMinor: Long = 2500L, merchantId: String = "Org1MSP", terminalId: String = "term-demo01") {
+        if (_state.value.busy || !_state.value.provisioned || _state.value.offlineSpendingDisabled) return
+        _state.value = _state.value.copy(busy = true, pay = PayState.Signing)
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.Default) {
+                val bundleBefore = repository.buildBundle(stored)
+                if (bundleBefore == null) {
+                    return@withContext Pair(stored, PayState.LocallyRefused("Wallet not provisioned"))
+                }
+                val txnId = repository.newTxnId()
+                val outcome = repository.signPayment(
+                    state = stored,
+                    amountMinor = amountMinor,
+                    merchantId = merchantId,
+                    terminalId = terminalId,
+                    txnId = txnId,
+                    terminalTime = System.currentTimeMillis() / 1000L,
+                )
+                when (outcome) {
+                    is WalletRepository.SignOutcome.Signed -> {
+                        val verifyOutcome = lk.sliit.syntpay.shared.TerminalVerifier.verify(
+                            bundle = bundleBefore,
+                            proposed = outcome.record.entry,
+                            params = lk.sliit.syntpay.shared.TerminalVerifier.Params(lastKnownBlock = 95_000L),
+                        )
+                        when (verifyOutcome) {
+                            is lk.sliit.syntpay.shared.TerminalVerifier.Outcome.Accept -> {
+                                val terminalSig = byteArrayOf(0x01, 0x02, 0x03, 0x04)
+                                val finalState = repository.attachTerminalSignature(
+                                    outcome.state,
+                                    outcome.record.entry.index,
+                                    terminalSig,
+                                )
+                                Pair(
+                                    finalState,
+                                    PayState.Accepted(
+                                        amountMinor = amountMinor,
+                                        merchantId = merchantId,
+                                        chainIndex = outcome.record.entry.index,
+                                        receiptIdHex = outcome.record.entry.receiptId().toHex(),
+                                        remainingAfter = repository.remaining(finalState),
+                                    ),
+                                )
+                            }
+                            is lk.sliit.syntpay.shared.TerminalVerifier.Outcome.Refuse -> {
+                                Pair(
+                                    outcome.state,
+                                    PayState.Refused(
+                                        amountMinor = amountMinor,
+                                        code = verifyOutcome.code.name,
+                                        reason = verifyOutcome.detail,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                    is WalletRepository.SignOutcome.KeyAlreadyBurnt -> {
+                        Pair(stored, PayState.Refused(amountMinor, "REFUSE_GAP", "Key at index already burnt"))
+                    }
+                    WalletRepository.SignOutcome.NoKeysRemaining -> {
+                        Pair(stored, PayState.LocallyRefused("No single-use keys remaining"))
+                    }
+                    WalletRepository.SignOutcome.NotProvisioned -> {
+                        Pair(stored, PayState.LocallyRefused("Wallet not provisioned"))
+                    }
+                }
+            }
+            stored = result.first
+            _state.value = snapshot(stored).copy(busy = false, pay = result.second)
+        }
     }
 
     internal fun repositoryHandle(): WalletRepository = repository

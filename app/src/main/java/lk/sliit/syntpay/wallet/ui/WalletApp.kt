@@ -135,6 +135,7 @@ fun WalletApp(viewModel: WalletViewModel = viewModel()) {
                     nfcEnabled = adapter?.isEnabled == true,
                     onDone = viewModel::resetPay,
                     onViewTrace = { traceIndex = it },
+                    onSimulatePay = { viewModel.simulatePayment() },
                     modifier = modifier,
                 )
 
@@ -160,6 +161,10 @@ fun WalletApp(viewModel: WalletViewModel = viewModel()) {
                     onCorruptLink = viewModel::attackCorruptLink,
                     onRestore = viewModel::restoreHonestState,
                     onRunCorpus = viewModel::runAttackCorpus,
+                    onSimulatePayment = {
+                        viewModel.simulatePayment()
+                        current = Destination.Pay
+                    },
                     modifier = modifier,
                 )
             }

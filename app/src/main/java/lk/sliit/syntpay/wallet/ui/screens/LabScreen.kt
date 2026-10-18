@@ -33,6 +33,7 @@ fun LabScreen(
     onCorruptLink: () -> Unit,
     onRestore: () -> Unit,
     onRunCorpus: () -> Unit,
+    onSimulatePayment: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -51,6 +52,11 @@ fun LabScreen(
         )
 
         Spacer(Modifier.height(16.dp))
+        LabButton(
+            "Simulate honest payment (LKR 25.00)",
+            enabled = state.provisioned && !state.offlineSpendingDisabled,
+            onClick = onSimulatePayment,
+        )
         LabButton("Delete last 2 payments", enabled = state.provisioned, onClick = onDeleteLastTwo)
         LabButton("Roll back to an earlier state", enabled = state.provisioned, onClick = onRollBack)
         LabButton("Edit a stored amount", enabled = state.provisioned, onClick = onEditAmount)

@@ -42,6 +42,7 @@ fun PayScreen(
     nfcPresent: Boolean,
     onDone: () -> Unit,
     onViewTrace: (Int) -> Unit,
+    onSimulatePay: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -53,9 +54,17 @@ fun PayScreen(
         if (!nfcPresent) {
             CentredNotice(
                 title = "NFC not available",
-                body = "This handset has no NFC radio, so it cannot present a payment.",
-                tint = SyntPayPalette.Error,
-            )
+                body = "This handset has no NFC radio. Use simulator below to test complete cryptographic payment flow on this device.",
+                tint = SyntPayPalette.Warning,
+            ) {
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = onSimulatePay,
+                    enabled = state.provisioned && !state.offlineSpendingDisabled,
+                ) {
+                    Text("Simulate payment (LKR 25.00)")
+                }
+            }
             return@Column
         }
         if (!nfcEnabled) {
