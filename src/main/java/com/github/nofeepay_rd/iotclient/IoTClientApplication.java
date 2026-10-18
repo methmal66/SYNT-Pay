@@ -1,42 +1,6 @@
-/*package com.github.nofeepay_rd.iotclient;
-import com.github.nofeepay_rd.iotclient.service.SmartContractService;
-import org.hyperledger.fabric.client.identity.*;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-
-@SpringBootApplication
-public class IoTClientApplication implements CommandLineRunner {
-
-    private final SmartContractService smartContractService;
-
-    public IoTClientApplication(SmartContractService smartContractService) {
-
-        this.smartContractService = smartContractService;
-    }
-
-    public static void main(String[] args) {
-
-        SpringApplication.run(IoTClientApplication.class, args);
-    }
-
-    @Override
-    public void run(String... args) throws Exception {
-
-        //System.out.println("Testing Fabric connection...");
-        //String result = smartContractService.GetAllCustomerTransfers();
-        smartContractService.TransferFunds("C001",100, "M001");
-        //System.out.println("Result from blockchain:" + result);
-
-    }
-}*/
-
-
-
 package com.github.nofeepay_rd.iotclient;
 
 import com.github.nofeepay_rd.iotclient.service.SmartContractService;
-import com.github.nofeepay_rd.iotclient.service.SignatureService;
 
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
@@ -46,14 +10,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class IoTClientApplication implements CommandLineRunner {
 
     private final SmartContractService smartContractService;
-    private final SignatureService signatureService;
 
     public IoTClientApplication(
-            SmartContractService smartContractService,
-            SignatureService signatureService) {
+            SmartContractService smartContractService) {
 
         this.smartContractService = smartContractService;
-        this.signatureService = signatureService;
     }
 
     public static void main(String[] args) {
@@ -64,15 +25,13 @@ public class IoTClientApplication implements CommandLineRunner {
     public void run(String... args) throws Exception {
 
         // Test merchant digital signature
-        String transactionData =
-                "TX001|C001|M001|100.00|LKR";
+        //String transactionData = "TX001|C001|M001|100.00|LKR";
 
-        String signature =
-                signatureService.signTransaction(transactionData);
+        //String signature = signatureService.signTransaction(transactionData);
 
-        System.out.println("Merchant signature: " + signature);
+        // System.out.println("Merchant signature: " + signature);
 
         // Keep your existing Fabric transaction call
-        // smartContractService.TransferFunds("C001", 100, "M001");
+        smartContractService.TransferFunds("C001", 100, "M001");
     }
 }

@@ -19,30 +19,29 @@ import org.hyperledger.fabric.client.identity.X509Identity;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.ClassPathResource;
 
+import java.io.File;
+import java.io.IOException;
 import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 
 @Configuration
 public class FabricConfig {
-    @Value("${fabric.certificate-path}")
-    private String certificatePathConfig;
+    @Value("${fabric.sign-certificate}")
+    private String signCertificate;
 
     @Value("${fabric.key-directory}")
-    private String keyDirectoryConfig;
+    private String keyDirectory;
 
-    @Value("${fabric.tls-certificate-path}")
-    private String tlsCertificatePathConfig;
+    @Value("${fabric.tls-certificate}")
+    private String tlsCertificate;
 
     @Value("${fabric.gateway-endpoint}")
     private String gatewayEndpoint;
-
-    @Value("${fabric.peer-authority}")
-    private String peerAuthority;
 
     @Value("${fabric.channel-name}")
     private String channelName;
@@ -50,13 +49,27 @@ public class FabricConfig {
     @Value("${fabric.chaincode-name}")
     private String chaincodeName;
 
+    @Value("${app.deployment-environment}")
+    private String deploymentEnvironment;
+
+    private Path resolveFilePath(String location) throws IOException {
+        Path path;
+        if(deploymentEnvironment.equals("DEV")){
+            path = new ClassPathResource(location).getFilePath().toAbsolutePath();
+        }
+        else {
+            path = new File(location).getAbsoluteFile().toPath();
+        }
+        return path;
+    }
+
     @Bean
     public Gateway fabricGateway() throws Exception {
         //Load Org1 X.509 certificate
-        Path certificatePath = Paths.get(certificatePathConfig);
+        Path signCertificatePath = this.resolveFilePath(signCertificate);
         X509Certificate certificate;
         try (Reader certReader =
-                     Files.newBufferedReader(certificatePath)) {
+                     Files.newBufferedReader(signCertificatePath)) {
             certificate =
                     Identities.readX509Certificate(certReader);
         }
@@ -64,10 +77,11 @@ public class FabricConfig {
                 "Org1MSP",
                             certificate
                 );
+
         //Find and load private key
-        Path keyDirectory = Paths.get(keyDirectoryConfig);
+        Path keyDirPath = resolveFilePath(keyDirectory);
         Path privateKeyPath;
-        try (var keyFiles = Files.list(keyDirectory)) {
+        try (var keyFiles = Files.list(keyDirPath)) {
             privateKeyPath = keyFiles
                     .filter(Files::isRegularFile)
                     .findFirst()
@@ -77,6 +91,7 @@ public class FabricConfig {
                             )
                     );
         }
+
         PrivateKey privateKey;
         try (Reader keyReader =
                      Files.newBufferedReader(privateKeyPath)) {
@@ -85,8 +100,9 @@ public class FabricConfig {
         }
         Signer signer =
                 Signers.newPrivateKeySigner(privateKey);
+
         //Load TLS CA certificate
-        Path tlsCertificatePath = Paths.get(tlsCertificatePathConfig);
+        Path tlsCertificatePath = resolveFilePath(tlsCertificate);
         ChannelCredentials tlsCredentials =
                 TlsChannelCredentials
                         .newBuilder()
