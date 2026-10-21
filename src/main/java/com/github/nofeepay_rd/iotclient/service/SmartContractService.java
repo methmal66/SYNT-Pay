@@ -1,9 +1,12 @@
 package com.github.nofeepay_rd.iotclient.service;
+import com.github.nofeepay_rd.iotclient.dto.TransactionApproval;
+import lombok.extern.slf4j.Slf4j;
 import org.hyperledger.fabric.client.Contract;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 
+@Slf4j
 @Service
 public class SmartContractService {
 
@@ -24,22 +27,19 @@ public class SmartContractService {
                 StandardCharsets.UTF_8
         );
     }
-    public void TransferFunds(
-            String customerAddress,
-            double amount,
-            String merchantAddress) {
+    public void TransferFunds(TransactionApproval approval) throws Exception {
 
         try {
             contract.submitTransaction(
                     "TransferFunds",
-                    customerAddress,
-                    String.valueOf(amount),
-                    merchantAddress);
-            System.out.println("Transaction Pass");
+                    approval.getCustomerAddress(),
+                    String.valueOf(approval.getAmount()),
+                    approval.getMerchantAddress());
+            log.info("Transaction Processed Successfully! {}", approval);
 
         } catch (Exception e) {
-            //e.printStackTrace();
-            System.out.println("Transaction Fail");
+            log.error("Transaction Failed! {}", approval, e);
+            throw new Exception(e.getMessage());
         }
     }
 }
